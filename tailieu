@@ -1,0 +1,192 @@
+Tổng quan
+
+Dưới đây là checklist kỹ thuật chi tiết theo thứ tự ưu tiên để triển khai từng bước nâng EA lên cấp độ chuyên nghiệp, kèm khuyến nghị module để đặt code tương ứng. Mỗi mục gồm mục tiêu, hành động kỹ thuật cụ thể, tiêu chí chấp nhận, kiểm thử và module đề xuất. Thực hiện theo thứ tự: Hard safety → Execution → Exits → ML governance → Validation → Ops.
+
+---
+
+1 Hard safety first
+
+Mục tiêu: Bảo toàn vốn, tự động dừng khi rủi ro vượt ngưỡng.
+
+• 1.1 Circuit breaker và daily risk budget• Hành động: Thêm inputs DailyEquityLossLimitPct, HardStopAbsoluteUSD, DailyRiskBudgetUSD. Triển khai logic check mỗi tick: nếu equity giảm vượt ngưỡng thì set gLossPause=true, gửi alert và ghi log snapshot.
+• Acceptance: EA ngưng mở lệnh mới trong vòng 1 tick sau trigger; log + alert chứa equity, peak, timestamp.
+• Kiểm thử: Simulate equity drawdown qua trade giả lập; verify pause và alert.
+• Module: RiskManagementAndExit.mqh
+
+• 1.2 Peak equity tracking per day• Hành động: Lưu gPeakEquityDaily, reset vào đầu ngày; cập nhật sau mỗi trade/OnTick.
+• Acceptance: CurrentDrawdownPercent() chính xác; peak persist trong session.
+• Kiểm thử: Mô phỏng chuỗi lệnh tăng/giảm equity.
+• Module: RiskManagementAndExit.mqh
+
+• 1.3 Hard stop catastrophic• Hành động: Nếu equity giảm > HardStopAbsoluteUSD trong window T → đóng toàn bộ vị thế và pause.
+• Acceptance: Tất cả vị thế đóng; log đóng lệnh chi tiết.
+• Kiểm thử: Tạo tình huống thua lớn, verify đóng toàn bộ.
+• Module: RiskManagementAndExit.mqh, ExecutionEngine.mqh
+
+• 1.4 Fail-safe OrderSend wrapper• Hành động: Tạo wrapper SafeOrderSend(req,res) với retry/backoff, retcode handling, fallback to limit order or cancel.
+• Acceptance: Retry configurable; mọi retcode được log; không để request thất bại silent.
+• Kiểm thử: Mock retcode scenarios, verify retry và fallback.
+• Module: ExecutionEngine.mqh, LoggingAndTimeUtils.mqh
+
+• 1.5 Unit tests cho safety• Hành động: Viết unit tests cho drawdown, peak update, pause logic.
+• Acceptance: CI chạy tests trước deploy.
+• Module: Không phải runtime module; lưu test scripts trong repo tests/.
+
+
+
+---
+
+2 Execution metrics and pre-trade checks
+
+Mục tiêu: Giảm slippage, tăng fill-rate, từ chối trade khi môi trường xấu.
+
+• 2.1 Execution telemetry• Hành động: Log mỗi trade: request.price, executed.price, slippagePts, retcode, latency, volumeRequested, volumeFilled, model_version, code_version.
+• Acceptance: Mỗi trade có record hoàn chỉnh; logs luân phiên theo ngày.
+• Kiểm thử: So sánh request vs executed trong replay tick.
+• Module: LoggingAndTimeUtils.mqh, ExecutionEngine.mqh
+
+• 2.2 Pre-trade slippage simulation• Hành động: Tính expected slippage từ historical fills; nếu expected > threshold → reject hoặc chuyển sang limit order.
+• Acceptance: Reject khi môi trường xấu; fallback limit order with timeout implemented.
+• Kiểm thử: Replay lịch sử fills để validate threshold behavior.
+• Module: ExecutionEngine.mqh, AdaptiveFrequencyEngine.mqh
+
+• 2.3 Order type strategy và retry• Hành động: Quy tắc chọn MARKET vs LIMIT; implement timeout cho limit; retry policy 3 attempts exponential backoff.
+• Acceptance: Limit timeout cancel; retry logged.
+• Kiểm thử: Simulate high spread/low liquidity, verify fallback.
+• Module: ExecutionEngine.mqh
+
+• 2.4 Broker stop-level và volume normalization• Hành động: Trước OrderSend luôn chạy EnsureSLMeetsBrokerStopLevel và NormalizeVolume.
+• Acceptance: Không bị reject do stop-level/volume step.
+• Kiểm thử: Test với brokers có stop-level khác nhau.
+• Module: ExecutionEngine.mqh
+
+• 2.5 Execution monitoring dashboard• Hành động: Export metrics (avg slippage, fill rate, rejected orders) vào CSV/DB cho dashboard.
+• Acceptance: Dashboard cập nhật hàng ngày; alert khi metric vượt threshold.
+• Module: LoggingAndTimeUtils.mqh
+
+
+
+---
+
+3 Advanced exits and position management
+
+Mục tiêu: Tối ưu lợi nhuận thực tế, giảm drawdown bằng multi-layer exit rules.
+
+• 3.1 Peak-tracking per position• Hành động: Lưu posPeakProfit[ticket] cập nhật mỗi tick; persist trong memory map.
+• Acceptance: posPeak cập nhật realtime; dùng cho profit-lock và partial close.
+• Kiểm thử: Mở position, simulate price tăng/giảm, verify posPeak.
+• Module: RiskManagementAndExit.mqh, TradeManager.mqh
+
+• 3.2 Multi-level profit lock• Hành động: Cấu hình levels LockPct1/2/3 và hành động tương ứng (move SL, partial close). Khi profit giảm từ peak > lockPct → thực hiện action.
+• Acceptance: SL di chuyển hoặc partial close thực hiện đúng mức; tránh over-churn bằng cooldown per ticket.
+• Kiểm thử: Simulate đạt từng level và rơi lại, verify hành động.
+• Module: RiskManagementAndExit.mqh
+
+• 3.3 ATR-based dynamic trailing• Hành động: Trail step = ATR_H1 * TrailMultiplier; trail only after MinProfitPts.
+• Acceptance: Trailing adaptive theo volatility regime.
+• Kiểm thử: Backtest với nhiều volatility regime.
+• Module: RiskManagementAndExit.mqh
+
+• 3.4 Smart partial close theo RR và time• Hành động: Rules: close X% khi realized RR >= targetRR OR time-in-trade > T1 & profit > P1. Ensure remaining volume >= minLot.
+• Acceptance: Partial close schedule không vi phạm min lot; log volumes.
+• Kiểm thử: Simulate trade paths, verify partial closes.
+• Module: RiskManagementAndExit.mqh, TradeManager.mqh
+
+• 3.5 Hybrid SL, OCO và event-driven exits• Hành động: Emulate OCO nếu broker không hỗ trợ; define triggers: TrendFlip, VolatilitySpike, ADXWeakening, HighImpactNews với actions partial/full close.
+• Acceptance: OCO behavior consistent; triggers có cooldown.
+• Kiểm thử: Trigger events trong replay, verify actions.
+• Module: RiskManagementAndExit.mqh, InstitutionalSMC.mqh, NewsAndSentiment.mqh
+
+
+
+---
+
+4 ML governance and model lifecycle
+
+Mục tiêu: ML hỗ trợ an toàn, có thể giám sát, rollback và không gây overfit.
+
+• 4.1 Model versioning và metadata• Hành động: Mỗi model có model_id, version, training_date, metrics. Lưu metadata cùng trade record.
+• Acceptance: Mỗi trade log chứa model_version.
+• Kiểm thử: Deploy model giả lập, verify metadata attached.
+• Module: MLAndONNX.mqh, LoggingAndTimeUtils.mqh
+
+• 4.2 Calibration và threshold per freq mode• Hành động: Calibrate probability outputs; expose MLThreshold[FREQ]. ML chỉ augment signal, không quyết định độc lập.
+• Acceptance: Thresholds có thể thay đổi theo FreqMode.
+• Kiểm thử: Validate precision/recall trên validation set.
+• Module: MLAndONNX.mqh, AdaptiveFrequencyEngine.mqh
+
+• 4.3 Drift detection và auto-reduce• Hành động: Monitor feature distributions and live model performance; nếu drift → giảm ML weight hoặc disable ML gate.
+• Acceptance: Auto action khi drift vượt ngưỡng; alert.
+• Kiểm thử: Inject synthetic drift, verify auto-reduce.
+• Module: MLAndONNX.mqh, LoggingAndTimeUtils.mqh
+
+• 4.4 A/B testing và canary deploy• Hành động: Canary percent config; compare PnL vs control; auto-promote if outperform.
+• Acceptance: Canary runs tracked and compared statistically.
+• Kiểm thử: Run canary 10% for N trades, analyze metrics.
+• Module: MLAndONNX.mqh, LoggingAndTimeUtils.mqh
+
+• 4.5 Explainability per trade• Hành động: Log top features and contribution (SHAP-like) for each ML-influenced trade.
+• Acceptance: Explainability record available for post-trade review.
+• Kiểm thử: Verify feature snapshot and contributions saved.
+• Module: MLAndONNX.mqh, LoggingAndTimeUtils.mqh
+
+
+
+---
+
+5 Robust validation and testing
+
+Mục tiêu: Đảm bảo chiến lược bền vững qua nhiều điều kiện.
+
+• 5.1 Walk-forward analysis• Hành động: Implement rolling windows train/test; aggregate metrics across windows.
+• Acceptance: Performance ổn định, low variance across windows.
+• Kiểm thử: Run WFA trên historical tick data.
+• Module: Ngoài runtime; scripts trong backtest/ repo.
+
+• 5.2 Monte Carlo stress testing• Hành động: Randomize slippage, spread, execution delay, partial fills; run N simulations; record drawdown distribution.
+• Acceptance: Tail risk chấp nhận được; metrics documented.
+• Kiểm thử: Run 1000+ simulations.
+• Module: backtest/ scripts
+
+• 5.3 Out-of-sample forward testing• Hành động: Deploy EA trên VPS với same broker for 3–6 months; collect telemetry.
+• Acceptance: Live-forward PnL within expected band.
+• Kiểm thử: Monitor forward run and compare to backtest bands.
+• Module: Runtime EA + Logging module
+
+• 5.4 Parameter sensitivity analysis• Hành động: For each tunable param compute sensitivity; freeze or adapt highly sensitive params.
+• Acceptance: Parameters with high sensitivity either adaptive or locked.
+• Kiểm thử: Grid search ±10% variations.
+• Module: backtest/ scripts
+
+• 5.5 Regression tests• Hành động: Create deterministic synthetic tick cases to validate entry/exit logic.
+• Acceptance: CI runs regression on each commit.
+• Kiểm thử: CI pipeline integration.
+• Module: tests/ repo
+
+
+
+---
+
+6 Operations monitoring and deployment
+
+Mục tiêu: Vận hành an toàn, có observability, CI/CD và alerting.
+
+• 6.1 Observability và alerting• Hành động: Central logs, metrics export, alerts for circuit breaker, model drift, execution anomalies.
+• Acceptance: Alerts delivered; dashboard cập nhật.
+• Kiểm thử: Trigger alerts trong staging.
+• Module: LoggingAndTimeUtils.mqh, SmartMoneyDiagnostics.mqh
+
+• 6.2 CI/CD và release management• Hành động: Pipeline: lint → unit tests → regression → build artifact → canary deploy. Tag releases and store artifacts.
+• Acceptance: Mỗi release có changelog và artifact.
+• Kiểm thử: Merge PR chạy pipeline.
+• Module: Repo infra, không runtime.
+
+• 6.3 VPS và latency management• Hành động: Monitor ping to broker; auto-pause if latency > threshold for N minutes.
+• Acceptance: Auto-pause triggers and resume logic.
+• Kiểm thử: Simulate high latency.
+• Module: LoggingAndTimeUtils.mqh, AdaptiveFrequencyEngine.mqh
+
+• 6.4 Audit trail và runbooks• Hành động: For each trade store code_version, model_version, feature snapshot, decision rationale. Create runbooks for incidents.
+• Acceptance: Audit trail complete for compliance.
+• Kiểm thử: Review sample trades for completeness.
+• Module: LoggingAndTimeUtils.mqh, MLAndONNX.mqh
