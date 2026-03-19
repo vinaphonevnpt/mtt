@@ -1,0 +1,65 @@
+Tôi đã upload toàn bộ code đã Kiểm tra toàn bộ module và mq5 trong GitHub, kiểm tra xem toàn bộ module và mq5 đã đáp ứng các tính năng yêu cầu bên dưới hay chưa? Đưa ra bảng so sánh bao gồm 5 cột: Module;Có trong repo?;Tuân thủ quy tắc (không duplicate, chức năng đúng module);Tính năng yêu cầu (smart entry/exit/SMC/adaptive);Đánh giá
+MỤC TIÊU TỐI THƯỢNG: Thiết kế ra một EA cực kỳ chuyên nghiệp nhất có thể, với vào lệnh, chốt lời và cắt lỗ cực kỳ thông minh (smart entry + multi-layer profit protection + dynamic risk management + institutional smart money logic). EA phải tối ưu lợi nhuận tối đa, giảm drawdown tối thiểu, hoạt động ổn định trên mọi điều kiện thị trường (trend, range, volatility, news, Asia/EU/US session).
+QUY TẮC BẮT BUỘC (PHẢI TUÂN THỦ 100% – KHÔNG ĐƯỢC PHÁ VỠ):
+
+1. Không thay đổi cấu trúc core (ScalpingProGate, AttemptEntry, OnTick, MLProbabilityGate, FrequencyAdaptiveGate).
+
+2. Mỗi hàm chỉ được khai báo 1 lần duy nhất trong đúng 1 module. Không duplicate.
+
+3. ConfigurationInputs.mqh phải chứa TOÀN BỘ input + enum từ file gốc, enum đưa lên đầu file, và tất cả input đều có comment tiếng Việt đầy đủ, rõ ràng, chuyên nghiệp.
+
+4. RiskManagementAndExit.mqh: file gốc chưa có đủ code → bạn phải tự phát triển đầy đủ và nâng cấp lên mức cao nhất (bao gồm ApplyProfitDropProtection 20% từ đỉnh, ATR Profit Lock, Volatility Spike Exit, Trend Flip Exit, ADX Weakening Exit, Hybrid Dynamic SL, PeakProfit tracking, ApplyTrailing, ApplyBreakEvenLogic, ApplyPartialCloseLogic + thêm các tính năng thông minh: dynamic RR theo volatility regime, multi-level profit lock, ML-assisted TP, Fibonacci + excursion prediction, drawdown-adaptive risk reduction, smart partial close theo RR + time).
+
+5. Mỗi module chỉ chứa các hàm liên quan đến trách nhiệm của nó. Không lẫn lộn.
+
+6. File chính (AutoConditionsEA_Modular_MAIN.mq5) chỉ giữ #property, #include 14 module, OnInit/OnDeinit/OnTick/OnTradeTransaction, và gọi các hàm từ module.
+
+7. Output phải theo đúng định dạng: mỗi file bắt đầu bằng dòng === [TÊN FILE] === rồi toàn bộ code, kết thúc bằng === END [TÊN FILE] ===.
+
+DANH SÁCH 14 MODULE (THỨ TỰ QUAN TRỌNG – PHẢI THEO ĐÚNG THỨ TỰ NÀY):
+
+1. ConfigurationInputs.mqh → Toàn bộ input + enum (enum lên đầu), comment tiếng Việt 100%. Đây là module duy nhất chứa toàn bộ phần input.
+
+2. AdaptiveFrequencyEngine.mqh → GetAdaptiveMLThreshold, GetAdaptiveSpreadMultiplier, GetAdaptiveVolumeMultiplier, GetAdaptiveAntiChase, UseSRFilter, UseStrictMTF, AllowNewsTrade, FrequencyAdaptiveGate, UpdateFrequencyBoostSettings, gFreq* globals. Chức năng: Quản lý 3 chế độ tần suất (OFF/MED/HIGH), tự động thư giãn filter (RSI, Spread, Anti-Chase, SR, MTF, News) để tăng tần suất lệnh mà vẫn giữ an toàn.
+
+3. LoggingAndTimeUtils.mqh → LogOnce, LogTag, LogBlockedOnce, GetDisplayTimeString, ConvertServerTime, GetTimezoneOffsetHours, NextAllowedTradeTime_*. Chức năng: Hệ thống log chuyên nghiệp, timezone chuyển đổi, prefix chống spam, thời gian hiển thị (VN, UTC, GMT...).
+
+4. IndicatorCache.mqh → InitIndicatorCache, GetATR14, GetRSI14, GetEMA21, GetEMA50, tất cả handle creation/release. Chức năng: Cache indicator để tăng tốc EA, tránh tạo handle lặp lại.
+
+5. TrendAndMTFAnalysis.mqh → TrendByEMA, GetEMATrendDir, EnhancedTrendDirectionFilter, MTF trend align, IsTrendFollowContext. Chức năng: Phân tích xu hướng, MTF đồng thuận, Enhanced Trend Direction, Pullback/Trend mode.
+
+6. SignalCore.mqh → ScalpingProGate (toàn bộ hàm), BuildTechnicalFailReason, BuildNoSignalReason, PriceActionConfirm, HeikenAshiConfirm, IchimokuBiasFilter. Chức năng: Core signal generation (ScalpingProGate), các filter chính (ML, SR, PA, HA, Ichimoku).
+
+7. InstitutionalSMC.mqh → DetectLiquiditySweepMultiSwing, DetectOrderBlockBull/Bear, DetectBullishFVG, DetectBearishFVG, GetLiquidityDistance, GetVolatilityRegimeAI, CalculateAdaptiveEntryScore, AdaptiveEntryBoost, DetectLiquidityCluster, DetectOrderflowImbalance. Chức năng: Smart Money Concept (SMC) – Liquidity Sweep, Order Block, FVG, Cluster, Institutional Score.
+
+8. NewsAndSentiment.mqh → GetXAUUSDSentimentScore (WebRequest X API), DynamicNewsBlockNow, SmartNewsBlock, SmartNewsAdjustLot, IsHighImpactNewsSoon. Chức năng: Tin tức động MT5 + Sentiment X + Smart News Risk (giảm lot medium impact).
+
+9. MLAndONNX.mqh → ComputeMLProbability, MLProbabilityGate, PredictMaxExcursion, ApplyMLExcursionTP, InitExcursionModel, hOnnxExcursion, MLPredictBuy. Chức năng: ONNX ML, excursion prediction, probability gate, ML-assisted TP.
+
+10. ExecutionEngine.mqh → AttemptEntry, BuildRRStops, BuildHybridSL, BuildStopsFromDistance, EnsureSLMeetsBrokerStopLevel, CheckStopsDistance, CheckTradeEnvironment, ValidateRiskForFixedLot, NormalizeVolume, NormalizeToTick, CloseOppositeIfAny. Chức năng: Điều phối thực thi lệnh (OrderSend), tính SL/TP, kiểm tra môi trường trước entry.
+
+11. TradeManager.mqh → CountOpenPositionsThisEA, CountOpenPositionsByTypeThisEA, HasOppositePositionThisEA, GetLatestPositionOpenTimeThisEA, GetBestProfitPriceDeltaSameDir, AnySameDirHasSLOrTrailed, CanPyramidSafe, AllowSmartPyramiding, CleanupPartialTrack, RecEnsure/RecRemove, TrailMarkSet/Remove, PartialMarkSet/Remove, CloseReqSet/Remove. Chức năng: Quản lý lệnh đang mở (pyramiding, partial, trailing, cleanup).
+
+12. RiskManagementAndExit.mqh → ApplyProfitDropProtection (20% từ đỉnh), ApplyATRProfitLock, ApplyVolatilitySpikeExit, ApplyTrendFlipExit, ApplyADXWeakeningExit, ApplyTrailing, ApplyBreakEvenLogic, ApplyPartialCloseLogic, EffectiveLotMultiplierByDrawdown, IsDrawdownSafe, UpdateDrawdownPeaks, CurrentDrawdownPercent, UpdateLossPauseStateByClosedProfit. Chức năng: Toàn bộ exit + cắt lỗ thông minh (profit drop, ATR lock, volatility spike, trend flip, ADX weakening, trailing, BE, partial, drawdown adaptive).
+
+13. SessionAndTimeFilter.mqh → IsTradingTime, IsTightSessionNow, IsLondonNYSessionNow, IsAsiaLikeSessionNow, SessionThresholdFactor, ApplySessionAdaptiveParameters. Chức năng: Tự động điều chỉnh thông số theo phiên (Asia/EU/US) + kết hợp FREQ mode (clamp an toàn RSI/Spread/Trend/Stoch).
+
+14. SmartMoneyDiagnostics.mqh → PrintInstitutionalDiagnostics, PrintSmartMoneyDiagnostics, GetInstitutionalScore, AllowTradeAdvanced. Chức năng: Diagnostic SMC + institutional score (debug & advanced trade allow).
+
+FILE CHÍNH: AutoConditionsEA_Modular_MAIN.mq5 → Chỉ giữ #property, #include 14 module theo thứ tự trên, OnInit, OnDeinit, OnTick (gọi UpdateFrequencyBoostSettings → ApplySessionAdaptiveParameters → AttemptEntry logic), OnTradeTransaction.
+
+LINK MODULE + MQ5:
+https://github.com/vinaphonevnpt/mtt2/blob/main/AdaptiveFrequencyEngine.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/AutoConditionsEA_Modular_MAIN.mq5
+https://github.com/vinaphonevnpt/mtt2/blob/main/ConfigurationInputs.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/ExecutionEngine.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/IndicatorCache.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/InstitutionalSMC.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/LoggingAndTimeUtils.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/MLAndONNX.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/NewsAndSentiment.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/RiskManagementAndExit.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/SessionAndTimeFilter.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/SignalCore.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/TradeManager.mqh
+https://github.com/vinaphonevnpt/mtt2/blob/main/TrendAndMTFAnalysis.mqh
