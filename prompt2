@@ -1,51 +1,34 @@
 Viết full code chuẩn module, compile sạch, đúng kiến trúc 14 module của bạn — không phá hệ thống hiện tại sau đó thực hiện thêm nhiệm vụ nâng cấp bên dưới:
 Nhiệm vụ: Nâng cấp file EA cho XAUUSD M5 hiện tại từ GitHub theo yêu cầu **thêm hệ thống 3 cấp độ tần suất** (FREQ_OFF / FREQ_MED / FREQ_HIGH) một cách chính xác và chuyên nghiệp nhất.
-
-** LINK MODULE + MQ5:
-https://github.com/vinaphonevnpt/mtt2/blob/main/AdaptiveFrequencyEngine.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/AutoConditionsEA_Modular_MAIN.mq5
-https://github.com/vinaphonevnpt/mtt2/blob/main/ConfigurationInputs.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/ExecutionEngine.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/IndicatorCache.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/InstitutionalSMC.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/LoggingAndTimeUtils.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/MLAndONNX.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/NewsAndSentiment.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/RiskManagementAndExit.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/SessionAndTimeFilter.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/SignalCore.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/TradeManager.mqh
-https://github.com/vinaphonevnpt/mtt2/blob/main/TrendAndMTFAnalysis.mqh
-
 ** YÊU CẦU NÂNG CẤP BẮT BUỘC (PHẢI THỰC HIỆN ĐÚNG 100%):**
 
 1. Thêm vào ConfigurationInputs.mqh:
    - Enum ENUM_FREQ_MODE (FREQ_MODE_OFF=0, FREQ_MODE_MED=1, FREQ_MODE_HIGH=2)
-   - Input: input ENUM_FREQ_MODE InpFrequencyMode = FREQ_MED; // Chế độ tần suất giao dịch
+   - Input: input ENUM_FREQ_MODE InpFrequencyMode = FREQ_MODE_HIGH; // Chế độ tần suất giao dịch
    - Comment tiếng Việt rõ ràng, chuyên nghiệp cho input mới.
    - Các Input và Enum nếu đã có chức năng tương tự thì update không thêm mới
 2. Trong AdaptiveFrequencyEngine.mqh (và các module liên quan):
    - Triển khai logic **tắt/mở – siết/nới filter** theo đúng bảng dưới đây.
    - Sử dụng InpFrequencyMode để điều chỉnh động (gọi hàm ApplyFrequencySettings() trong OnInit và OnTick).
    - Không được xóa hoặc thay đổi bất kỳ logic cũ nào, chỉ thêm relaxation.
+**BẢNG 3 CẤP ĐỘ TẦN SUẤT MỚI (PHẢI ÁP DỤNG ĐÚNG TRONG HÀM ApplyFrequencySettings):**
 
-**BẢNG TẮT/MỞ – SIẾT/NỚI FILTER THEO 3 CẤP ĐỘ (PHẢI ÁP DỤNG ĐÚNG):**
-
-| Filter / Tham số                     | FREQ_OFF (Thấp)          | FREQ_MED (Trung bình)     | FREQ_HIGH (Cao)            |
-|--------------------------------------|--------------------------|---------------------------|----------------------------|
-| InpRequireMTFTrendAlign              | Bật (true)               | Bật (true)                | Tắt (false)                |
-| ML Probability Threshold             | 0.58                     | 0.50                      | 0.42                       |
-| Spread Abnormal Multiplier           | 1.80                     | 1.50                      | 1.30                       |
-| Volume Multiplier                    | 1.08                     | 1.04                      | 0.0 (bỏ filter)            |
-| MinSecondsBetweenEntries             | 45                       | 25                        | 8                          |
-| UseSRConfirm                         | Bật                      | Bật                       | Tắt                        |
-| UsePriceActionConfirm                | Bật                      | Tắt                       | Tắt                        |
-| UseAntiChaseFilter                   | Bật                      | Bật                       | Tắt                        |
-| UseAntiExhaustionFilter              | Bật                      | Bật                       | Tắt                        |
-| UseStrictMTF                         | Bật                      | Tắt                       | Tắt                        |
-| UseStochFilter                       | Bật                      | Bật                       | Tắt                        |
-| UseRSI_OBOS_Filter                   | Bật                      | Bật                       | Tắt                        |
-| InpEnableSessionAdaptiveThresholds   | Bật + siết chặt          | Bật cân bằng              | Bật + nới lỏng             |
+| Filter / Tham số                      | FREQ_MODE_OFF (10–30 lệnh/ngày) | FREQ_MODE_MED (30–50 lệnh/ngày) | FREQ_MODE_HIGH (50–80 lệnh/ngày) |
+|---------------------------------------|---------------------------------|---------------------------------|----------------------------------|
+| gMLThreshold                          | 0.62                            | 0.52                            | 0.38                             |
+| gSpreadMultiplier                     | 2.00                            | 1.55                            | 1.20                             |
+| gVolumeMultiplier                     | 1.15                            | 1.05                            | 0.0                              |
+| gMinSecondsBetweenEntries             | 60                              | 25                              | 8                                |
+| gRequireMTFTrendAlign                 | true                            | true                            | false                            |
+| gUseStrictMTF                         | true                            | false                           | false                            |
+| gUseSRConfirm                         | true                            | true                            | false                            |
+| gUsePriceActionConfirm                | true                            | false                           | false                            |
+| gUseAntiChaseFilter                   | true                            | true                            | false                            |
+| gUseAntiExhaustionFilter              | true                            | true                            | false                            |
+| gUseStochFilter                       | true                            | true                            | false                            |
+| gUseRSI_OBOS_Filter                   | true                            | true                            | false                            |
+| gUseHeikenAshiConfirm                 | true                            | true                            | false                            |
+| gSessionAdaptiveFactor                | 0.85 (siết chặt)                | 1.0 (cân bằng)                  | 1.15 (nới lỏng)                  |
 
 3. RiskManagementAndExit.mqh và ExecutionEngine.mqh vẫn phải giữ và nâng cấp đầy đủ các exit thông minh (Profit Drop 20%, ATR Profit Lock, Volatility Spike Exit, Trend Flip Exit, ADX Weakening Exit…).
 4. Việc ghi log sẽ theo nến không theo mỗi tick và log ghi bằng tiếng việt có mở ngoặc () ghi rõ thông số cần để vào lệnh và thông số hiện tại
